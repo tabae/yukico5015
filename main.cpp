@@ -4,7 +4,7 @@
 
 using namespace std;
 
-double p_erase = 0.5;
+double p_erase = 0.75;
 
 /*乱数生成器*/
 struct RandGenerator {
@@ -216,13 +216,6 @@ namespace Utils {
     int calc_dist(pair<int,int> a, pair<int,int> b) {
         return abs(a.first - b.first) + abs(a.second - b.second);
     }
-    int rdir(int dir) {
-        if(dir == 0) return 1;
-        if(dir == 1) return 0;
-        if(dir == 2) return 3;
-        if(dir == 3) return 2;
-        return -1;
-    }
     vector<pair<int,int>> searchPath(pair<int,int> start, pair<int,int> goal, bool goal_ok) {
         if(!goal_ok && path_rec.count({start, goal})) return path_rec[{start, goal}];
         queue<pair<int,int>> que;
@@ -312,44 +305,17 @@ namespace Utils {
     }
     Output convertPathToOperations(const vector<pair<int,int>>& path) {
         Output res;
-        vector<pair<int,int>> global_path;
-        auto s = input.s;
         for(int i = 0; i < path.size()-1; i++) {
             auto local_path = searchPath(path[i], path[i+1], i == path.size()-2);
-            if(i != path.size()-2) local_path.pop_back();
-            for(auto e: local_path) global_path.push_back(e);
-        }
-        vector last_access(input.n, vector<int>(input.n, -1));
-        for(int i = 0; i < global_path.size(); i++) {
-            last_access[global_path[i].first][global_path[i].second] = i;
-        }
-        for(int i = 0; i < global_path.size()-1; i++) {
-            pair<int, int> delta = {global_path[i+1].first - global_path[i].first, global_path[i+1].second - global_path[i].second};
-            for(int dir = 0; dir < 4; dir++) {
-                if(dir_to_delta(dir) == delta) {
-                    res.ans.push_back(Operation(Command::Move, dir));
-                    if(last_access[global_path[i].first][global_path[i].second] == i && input.start_pos != global_path[i]) {
-                        auto [ci, cj] = global_path[i];
-                        bool detector = false;
-                        while(input.in_range(ci, cj)) {
-                            if(s[ci][cj] == 'E') {
-                                if(input.d_mod[ci][cj] == 2) detector = true;
-                                break;
-                            }
-                            if(s[ci][cj] == '#') {
-                                break;
-                            }
-                            ci += di[rdir(dir)];
-                            cj += dj[rdir(dir)];
-                        }
-                        if(detector) {
-                            s[global_path[i].first][global_path[i].second] = '#';
-                            res.ans.push_back(Operation(Command::Build, rdir(dir)));
-                        }
+            for(int j = 0; j < local_path.size()-1; j++) {
+                pair<int, int> delta = {local_path[j+1].first - local_path[j].first, local_path[j+1].second - local_path[j].second};
+                for(int dir = 0; dir < 4; dir++) {
+                    if(dir_to_delta(dir) == delta) {
+                        res.ans.push_back(Operation(Command::Move, dir));
+                        break;
                     }
-                    break;
-                }
-            } 
+                } 
+            }
         }
         return res;
     }
@@ -379,37 +345,11 @@ namespace Utils {
                 }
                 if(s[ci][cj] == '#' || s[ci][cj] == 'E') {
                     cerr << "Warn: invalid move, wall or detector" << endl;
-                    cerr << "( " << ci << "," << cj << ")" << endl;
-                    cerr << "( " << ci-Utils::di[op.dir] << "," << cj-Utils::dj[op.dir] << ")" << endl;
                     return invalid_ans;
                 }
                 if(s[ci][cj] == 'F') mp++; 
                 if(s[ci][cj] == 'J') score += 10;
                 s[ci][cj] = '.';
-                int dmg = 0;
-                for(int dir = 0; dir < 4; dir++) {
-                    int ni = ci + Utils::di[dir];
-                    int nj = cj + Utils::dj[dir];
-                    while(ni >= 0 && nj >= 0 && ni < input.n && nj < input.n) {
-                        if(input.s[ni][nj] == '#') {
-                            break;
-                        } else if(input.s[ni][nj] == 'E') {
-                            if(turn % input.d_mod[ni][nj] == 0) {
-                                dmg += input.d;
-                            }
-                            break;
-                        }
-                        ni += Utils::di[dir];
-                        nj += Utils::dj[dir];
-                    }
-                }
-                hp -= dmg;
-                turn++;
-            } else if(op.cmd == Command::Build) {
-                hp--;
-                int bi = ci + Utils::di[op.dir];
-                int bj = cj + Utils::dj[op.dir];
-                s[bi][bj] = '#';
                 int dmg = 0;
                 for(int dir = 0; dir < 4; dir++) {
                     int ni = ci + Utils::di[dir];
