@@ -4,6 +4,8 @@
 
 using namespace std;
 
+double p_erase = 0.75;
+
 /*乱数生成器*/
 struct RandGenerator {
     random_device seed_gen;
@@ -403,7 +405,7 @@ State State::initState() {
 
 State State::generateState(const State &input_state) {
     State res = input_state;
-    if(res.path.size() >= 20 && ryuka.pjudge(0.5)) {
+    if(res.path.size() >= 20 && ryuka.pjudge(p_erase)) {
         int rm_target = -1;
         while(true) {
             int tmp = ryuka.rand(res.path.size() - 2) + 1;
@@ -417,63 +419,34 @@ State State::generateState(const State &input_state) {
             res.path.erase(res.path.begin() + rm_target);
         }
     }
-    if(ryuka.pjudge(0.5)) {
-        int target = -1;
-        for(int _ = 0; _ < 100; _++) {
-            int tmp = ryuka.rand(input.num_juel);
-            if(!res.juels[tmp] && input.reachable[input.juel_pos[tmp].first][input.juel_pos[tmp].second]) {
-                target = tmp;
-                break;
-            }
+    int target = -1;
+    for(int _ = 0; _ < 100; _++) {
+        int tmp = ryuka.rand(input.num_juel);
+        if(!res.juels[tmp] && input.reachable[input.juel_pos[tmp].first][input.juel_pos[tmp].second]) {
+            target = tmp;
+            break;
         }
-        if(target == -1) {
-            cerr << "Warn: cannot find juel candidate" << endl;
-            return res;
-        }
-        int min_dist = 1<<30, min_pos = -1;
-        for(int i = 0; i < res.path.size()-1; i++) {
-            int tmp_dist1 = Utils::calc_dist(input.juel_pos[target], res.path[i]);
-            int tmp_dist2 = Utils::calc_dist(input.juel_pos[target], res.path[i+1]);
-            int tmp_dist = tmp_dist1 + tmp_dist2;
-            if(tmp_dist < min_dist) {
-                min_pos = i;
-                min_dist= tmp_dist;
-            }
-        }
-        if(min_pos == -1) {
-            cerr << "Warn: cannot find insertable pos" << endl;
-            return res;
-        }
-        res.path.insert(res.path.begin()+min_pos+1, input.juel_pos[target]);
-        res.juels[target] = true; 
-    } else {
-        int target = ryuka.rand(res.path.size());
-        int min_dist = 1<<30, min_juel = -1;
-        for(int x = 0; x < input.num_juel; x++) {
-            if(res.juels[x] || !input.reachable[input.juel_pos[x].first][input.juel_pos[x].second]) continue;
-            int tmp_dist = Utils::calc_dist(input.juel_pos[x], res.path[target]);
-            if(tmp_dist < min_dist) {
-                min_juel = x;
-                min_dist = tmp_dist;
-            }
-        }
-        if(min_juel == -1) {
-            cerr << "Warn: cannot find close juel (closeup)" << endl;
-            return res;
-        }
-        int insert_pos = -1;
-        if(target == 0) insert_pos = target + 1;
-        else if(target == res.path.size()-1) insert_pos = target;
-        else {
-            if(Utils::calc_dist(input.juel_pos[min_juel], res.path[target+1]) < Utils::calc_dist(input.juel_pos[min_juel], res.path[target-1])) {
-                insert_pos = target+1;
-            } else {
-                insert_pos = target;
-            }
-        }
-        res.path.insert(res.path.begin()+insert_pos, input.juel_pos[min_juel]);
-        res.juels[min_juel] = true; 
     }
+    if(target == -1) {
+        cerr << "Warn: cannot find juel candidate" << endl;
+        return res;
+    }
+    int min_dist = 1<<30, min_pos = -1;
+    for(int i = 0; i < res.path.size()-1; i++) {
+        int tmp_dist1 = Utils::calc_dist(input.juel_pos[target], res.path[i]);
+        int tmp_dist2 = Utils::calc_dist(input.juel_pos[target], res.path[i+1]);
+        int tmp_dist = tmp_dist1 + tmp_dist2;
+        if(tmp_dist < min_dist) {
+            min_pos = i;
+            min_dist= tmp_dist;
+        }
+    }
+    if(min_pos == -1) {
+        cerr << "Warn: cannot find insertable pos" << endl;
+        return res;
+    }
+    res.path.insert(res.path.begin()+min_pos+1, input.juel_pos[target]);
+    res.juels[target] = true; 
     res.output = Utils::convertPathToOperations(res.path);
     res.score = Utils::calcScore(res.output);
     return res;
@@ -482,6 +455,10 @@ State State::generateState(const State &input_state) {
 int main(int argc, char* argv[]) {
     toki.init();
     input.read();
+    #ifdef OPTUNA
+    p_erase = atof(argv[1]);
+    p_ramdom_add = atof(argv[2]);
+    #endif
     IterationControl<State> sera;
     State res = sera.climb(2.8, State::initState());
     res.output.print();
