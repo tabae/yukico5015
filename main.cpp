@@ -4,8 +4,6 @@
 
 using namespace std;
 
-#define n_kinds 26
-
 /*乱数生成器*/
 struct RandGenerator {
     random_device seed_gen;
@@ -56,7 +54,9 @@ struct Input {
     pair<int,int> start_pos, goal_pos, key_pos;
     vector<vector<bool>> reachable;
     vector<vector<map<pair<int,int>,int>>> dist;
-    vector<vector<int>> d_mod;
+    vector<vector<int>> d_mod, juel_id;
+    vector<pair<int,int>> juel_pos;
+    int num_juel = 0;
     void read() {
         cin >> n >> d >> h;
         s.resize(n);
@@ -64,6 +64,7 @@ struct Input {
         cin >> m;
         sensors.resize(m);
         d_mod.resize(n, vector<int>(n, 1<<30));
+        juel_id.resize(n, vector<int>(n));
         for(auto& [i, j, d] : sensors) {
             cin >> i >> j >> d;
             d_mod[i][j] = d;
@@ -73,6 +74,11 @@ struct Input {
                 if(s[i][j] == 'S') start_pos = {i, j};
                 if(s[i][j] == 'G') goal_pos = {i, j};
                 if(s[i][j] == 'K') key_pos = {i, j};
+                if(s[i][j] == 'J') {
+                    juel_id[i][j] = num_juel;
+                    juel_pos.push_back({i, j});
+                    num_juel++;
+                }
             }
         }
         reachable.resize(n, vector<bool>(n, false));
@@ -94,6 +100,7 @@ struct Input {
                 }
             }
         }
+        reachable[goal_pos.first][goal_pos.second] = true;
     }
     bool in_range(int i, int j) {
         if(i >= 0 && j >= 0 && i < n && j < n) return true;
@@ -127,7 +134,11 @@ struct Output {
 struct State {
     long long score;
     vector<pair<int,int>> path;
-    State() : score(1LL<<60) {}
+    vector<bool> juels;
+    Output output;
+    State() : score(0) {
+        juels.resize(input.num_juel, false);
+    }
     static State initState(); 
     static State generateState(const State& input_state);
 };
@@ -145,11 +156,12 @@ struct IterationControl {
         start_time = toki.gettime();
         average_time = 0;
         STATE best_state = initial_state;
+        cerr << "[DEBUG] initial score is " << best_state.score << endl;
         double time_stamp = start_time;
         cerr << "[INFO] - IterationControl::climb - Starts climbing...\n";
         while(time_stamp - start_time + average_time < time_limit) {
             STATE current_state = STATE::generateState(best_state);
-            if(current_state.score < best_state.score) {
+            if(current_state.score > best_state.score) {
                 swap(best_state, current_state);
                 swap_counter++;
             }
@@ -165,6 +177,7 @@ struct IterationControl {
         start_time = toki.gettime();
         average_time = 0;
         STATE best_state = initial_state;
+        cerr << "[DEBUG] initial score is " << best_state.score << endl;
         double elapsed_time = 0;
         cerr << "[INFO] - IterationControl::anneal - Starts annealing...\n";
         while(elapsed_time + average_time < time_limit) {
@@ -188,6 +201,7 @@ struct IterationControl {
 namespace Utils {
     const int di[] = {-1, 1, 0, 0};
     const int dj[] = {0, 0, -1, 1};
+    map<pair<pair<int,int>,pair<int,int>>, vector<pair<int,int>>> path_rec;
     pair<int, int> dir_to_delta(int dir) {
         return {di[dir], dj[dir]};
     }
@@ -200,47 +214,8 @@ namespace Utils {
     int calc_dist(pair<int,int> a, pair<int,int> b) {
         return abs(a.first - b.first) + abs(a.second - b.second);
     }
-    vector<pair<int,int>> generatePathNN() {
-        pair<int,int> current_pos = input.start_pos;
-        bool got_key = false;
-        vector seen(input.n, vector<bool>(input.n, false));
-        vector<pair<int,int>> path;
-        seen[current_pos.first][current_pos.second] = true;
-        while(true) {
-            auto [ci, cj] = current_pos;
-            path.push_back(current_pos);
-            int min_dist = 1<<30;
-            pair<int, int> nearest_pos;
-            for(int search_range = 5; search_range <= 30; search_range += 5) {
-                for(int i = max(0, ci - search_range); i < min(input.n, ci + search_range); i++) {
-                    for(int j = max(0, cj - search_range); j < min(input.n, cj + search_range); j++) {
-                        if(input.reachable[i][j] && !seen[i][j] && (input.s[i][j] == 'J' || /*input.s[i][j] == 'F' ||*/ input.s[i][j] == 'K')) {
-                            // TODO: 厳密な距離に置き換える？ よくよく考えると、宝石や火薬は30％くらいしか無いから、1000^2くらいに収まる
-                            //       経路も記録しておけるか？ 火薬は拾いに行く？
-                            int current_dist = abs(i - ci) + abs(j - cj);
-                            if(min_dist > current_dist) {
-                                min_dist = current_dist;
-                                nearest_pos = {i, j};
-                            }
-                        }
-                    }
-                }
-                if(min_dist != (1<<30)) {
-                    current_pos = nearest_pos;
-                    seen[nearest_pos.first][nearest_pos.second] = true;
-                    if(input.s[nearest_pos.first][nearest_pos.second] == 'K') got_key = true;
-                    break;
-                }
-            }
-            if(min_dist == (1<<30)) {
-                if(!got_key) path.push_back(input.key_pos);
-                path.push_back(input.goal_pos);
-                break;
-            }
-        }
-        return path;    
-    }
     vector<pair<int,int>> searchPath(pair<int,int> start, pair<int,int> goal, bool goal_ok) {
+        if(!goal_ok && path_rec.count({start, goal})) return path_rec[{start, goal}];
         queue<pair<int,int>> que;
         vector seen(input.n, vector<bool>(input.n, false));
         vector from(input.n, vector<pair<int,int>>(input.n));
@@ -274,7 +249,57 @@ namespace Utils {
             path.push_back(current_pos);
         }   
         reverse(path.begin(), path.end());
+        if(!goal_ok) path_rec[{start, goal}] = path;
         return path;
+    }
+    vector<pair<int,int>> generatePathBFS() {
+        cerr << "Starts bfs to key..." << endl;
+        vector<pair<int,int>> path2key = searchPath(input.start_pos, input.key_pos, false);
+        cerr << "Starts bfs to goal..." << endl;
+        vector<pair<int,int>> path2goal = searchPath(input.key_pos, input.goal_pos, true);
+        path2key.pop_back();
+        vector<pair<int,int>> res;
+        for(auto e : path2key) if(input.s[e.first][e.second] != '.') res.push_back(e);
+        for(auto e : path2goal) if(input.s[e.first][e.second] != '.') res.push_back(e);
+        return res;
+    }
+    vector<pair<int,int>> generatePathNN() {
+        pair<int,int> current_pos = input.start_pos;
+        bool got_key = false;
+        vector seen(input.n, vector<bool>(input.n, false));
+        vector<pair<int,int>> path;
+        seen[current_pos.first][current_pos.second] = true;
+        while(true) {
+            auto [ci, cj] = current_pos;
+            path.push_back(current_pos);
+            int min_dist = 1<<30;
+            pair<int, int> nearest_pos;
+            for(int search_range = 5; search_range <= 30; search_range += 5) {
+                for(int i = max(0, ci - search_range); i < min(input.n, ci + search_range); i++) {
+                    for(int j = max(0, cj - search_range); j < min(input.n, cj + search_range); j++) {
+                        if(input.reachable[i][j] && !seen[i][j] && (input.s[i][j] == 'J' || /*input.s[i][j] == 'F' ||*/ input.s[i][j] == 'K')) {
+                            int current_dist = abs(i - ci) + abs(j - cj);
+                            if(min_dist > current_dist) {
+                                min_dist = current_dist;
+                                nearest_pos = {i, j};
+                            }
+                        }
+                    }
+                }
+                if(min_dist != (1<<30)) {
+                    current_pos = nearest_pos;
+                    seen[nearest_pos.first][nearest_pos.second] = true;
+                    if(input.s[nearest_pos.first][nearest_pos.second] == 'K') got_key = true;
+                    break;
+                }
+            }
+            if(min_dist == (1<<30)) {
+                if(!got_key) path.push_back(input.key_pos);
+                path.push_back(input.goal_pos);
+                break;
+            }
+        }
+        return path;    
     }
     Output convertPathToOperations(const vector<pair<int,int>>& path) {
         Output res;
@@ -292,49 +317,38 @@ namespace Utils {
         }
         return res;
     }
-    long long calcScore(const State& state) {
-        long long res = 0;
-        return res;
-    } 
-    Output saveLife(Output raw_output) {
-        cerr << "Starts saveLife..." << endl;
-        int hp = input.h;
-        int mp = 0;
+    long long calcScore(const Output& output) {
+        long long score = 0;
+        int hp = input.h, mp = 0;
         int turn = 1;
-        auto [ci, cj] = input.start_pos;
         bool got_key = false;
         bool got_goal = false;
-        Output res;
-        for(Operation op: raw_output.ans) {
-            if(input.key_pos == make_pair(ci, cj)) {
-                got_key = true;
-            }
-            if(input.goal_pos == make_pair(ci, cj)) {
-                got_goal = true;
-                break;
-            }
-            if(got_key) {
-                if(hp < 300) break;
-            } else {
-                if(hp < 600) break;
-            }
-            if(input.s[ci][cj] == 'F') mp++;
-            for(int dir = 0; dir < 4; dir++) {
-                int ni = ci + Utils::di[dir];
-                int nj = cj + Utils::dj[dir];
-                if(input.in_range(ni, nj) && input.s[ni][nj] == 'E' && mp > 0) {
-                    res.ans.push_back(Operation(Command::Fire, dir));
-                    mp--;
-                    hp--;
-                    input.s[ni][nj] = '.';
-                    turn++;
-                }
-            }
-            res.ans.push_back(op);
-            input.s[ci][cj] = '.';
+        int invalid_ans = -(1<<30);
+        auto [ci, cj] = input.start_pos;
+        auto s = input.s;
+        for(Operation op: output.ans) {
             if(op.cmd == Command::Move) {
-                ci += Utils::di[op.dir];
-                cj += Utils::dj[op.dir];
+                ci += di[op.dir];
+                cj += dj[op.dir];
+                hp--;
+                if(s[ci][cj] == 'K') got_key = true;
+                if(s[ci][cj] == 'G') {
+                    if(!got_key || hp < 0) {
+                        if(!got_key) cerr << "Warn: invalid ans (goal without key)" << endl;
+                        else ; //cerr << "Warn: invalid ans (hp < 0)" << endl;
+                        return invalid_ans;
+                    } else {
+                        return score;
+                    }
+                }
+                if(s[ci][cj] == '#' || s[ci][cj] == 'E') {
+                    cerr << "Warn: invalid move, wall or detector" << endl;
+                    return invalid_ans;
+                }
+                if(s[ci][cj] == 'F') mp++; 
+                if(s[ci][cj] == 'J') score += 10;
+                s[ci][cj] = '.';
+                int dmg = 0;
                 for(int dir = 0; dir < 4; dir++) {
                     int ni = ci + Utils::di[dir];
                     int nj = cj + Utils::dj[dir];
@@ -343,7 +357,7 @@ namespace Utils {
                             break;
                         } else if(input.s[ni][nj] == 'E') {
                             if(turn % input.d_mod[ni][nj] == 0) {
-                                hp -= input.d;
+                                dmg += input.d;
                             }
                             break;
                         }
@@ -351,26 +365,15 @@ namespace Utils {
                         nj += Utils::dj[dir];
                     }
                 }
+                hp -= dmg;
+                turn++;
             } else {
                 assert(false);
             }
-            turn++;
-            hp--;
         }
-        if(!got_goal) {
-            vector<pair<int,int>> path;
-            if(!got_key) {
-                path.push_back({ci, cj});
-                ci = input.key_pos.first;
-                cj = input.key_pos.second;
-            }
-            path.push_back({ci, cj});
-            path.push_back(input.goal_pos);
-            auto ops_to_goal = Utils::convertPathToOperations(path);
-            for(auto e : ops_to_goal.ans) res.ans.push_back(e);
-        }
-        return res;
-    }
+        cerr << "Warn: invalid ans (failed to reach goal)" << endl;
+        return invalid_ans;
+    } 
 }
 
 void Operation::print() {
@@ -387,50 +390,70 @@ void Operation::print() {
 
 State State::initState() {
     State res;
-    res.path = Utils::generatePathNN();
-    res.score = 0;
-    for(int i = 0; i < res.path.size()-1; i++) {
-        res.score += Utils::calc_dist(res.path[i], res.path[i+1]);
+    res.path = Utils::generatePathBFS();
+    for(auto e : res.path) {
+        if(input.s[e.first][e.second] == 'J') {
+            res.juels[input.juel_id[e.first][e.second]] = true;
+        }
     }
+    res.output = Utils::convertPathToOperations(res.path);
+    res.score = Utils::calcScore(res.output);
     return res;
 }
 
 State State::generateState(const State &input_state) {
     State res = input_state;
-    int i = ryuka.rand(res.path.size()-2)+1;
-    int j = ryuka.rand(res.path.size()-2)+1;
-    if(i != j) {
-        res.score -= Utils::calc_dist(res.path[i-1], res.path[i]);
-        res.score -= Utils::calc_dist(res.path[i], res.path[i+1]);
-        res.score -= Utils::calc_dist(res.path[j-1], res.path[j]);
-        res.score -= Utils::calc_dist(res.path[j], res.path[j+1]);
-        swap(res.path[i], res.path[j]);
-        res.score += Utils::calc_dist(res.path[i-1], res.path[i]);
-        res.score += Utils::calc_dist(res.path[i], res.path[i+1]);
-        res.score += Utils::calc_dist(res.path[j-1], res.path[j]);
-        res.score += Utils::calc_dist(res.path[j], res.path[j+1]);
+    if(res.path.size() >= 20 && ryuka.pjudge(0.5)) {
+        int rm_target = -1;
+        while(true) {
+            int tmp = ryuka.rand(res.path.size() - 2) + 1;
+            if(input.s[res.path[tmp].first][res.path[tmp].second] != 'K') {
+                rm_target = tmp;
+                break;
+            }
+        } 
+        if(rm_target != -1) {
+            res.juels[input.juel_id[res.path[rm_target].first][res.path[rm_target].second]] = false;
+            res.path.erase(res.path.begin() + rm_target);
+        }
     }
+    int target = -1;
+    for(int _ = 0; _ < 100; _++) {
+        int tmp = ryuka.rand(input.num_juel);
+        if(!res.juels[tmp] && input.reachable[input.juel_pos[tmp].first][input.juel_pos[tmp].second]) {
+            target = tmp;
+            break;
+        }
+    }
+    if(target == -1) {
+        cerr << "Warn: cannot find juel candidate" << endl;
+        return res;
+    }
+    int min_dist = 1<<30, min_pos = -1;
+    for(int i = 0; i < res.path.size()-1; i++) {
+        int tmp_dist1 = Utils::calc_dist(input.juel_pos[target], res.path[i]);
+        int tmp_dist2 = Utils::calc_dist(input.juel_pos[target], res.path[i+1]);
+        int tmp_dist = tmp_dist1 + tmp_dist2;
+        if(tmp_dist < min_dist) {
+            min_pos = i;
+            min_dist= tmp_dist;
+        }
+    }
+    if(min_pos == -1) {
+        cerr << "Warn: cannot find insertable pos" << endl;
+        return res;
+    }
+    res.path.insert(res.path.begin()+min_pos+1, input.juel_pos[target]);
+    res.juels[target] = true; 
+    res.output = Utils::convertPathToOperations(res.path);
+    res.score = Utils::calcScore(res.output);
     return res;
 }   
 
 int main(int argc, char* argv[]) {
     toki.init();
     input.read();
-    double temp_start = 95341.24848473762;
-    double temp_end = 3.281132005830301;
-    #ifdef OPTUNA
-    if(argc == 3) {
-        temp_start = atof(argv[1]);
-        temp_end = atof(argv[2]);
-        cerr << "[INFO] - main - temp_start is " << temp_start << "\n";
-        cerr << "[INFO] - main - temp_end is " << temp_end << "\n";
-    }
-    #endif
     IterationControl<State> sera;
-    // annealに変更するときは最小値を探していることに気を付ける
-    // State res = sera.climb(10, State::initState());
-    State res = sera.anneal(2.7, temp_start, temp_end, State::initState());
-    Output ans = Utils::convertPathToOperations(res.path);
-    ans = Utils::saveLife(ans);
-    ans.print();
+    State res = sera.climb(2.8, State::initState());
+    res.output.print();
 }
