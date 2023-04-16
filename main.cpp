@@ -95,6 +95,10 @@ struct Input {
             }
         }
     }
+    bool in_range(int i, int j) {
+        if(i >= 0 && j >= 0 && i < n && j < n) return true;
+        else return false;
+    }
 } input;
 
 enum struct Command {
@@ -295,6 +299,7 @@ namespace Utils {
     Output saveLife(Output raw_output) {
         cerr << "Starts saveLife..." << endl;
         int hp = input.h;
+        int mp = 0;
         int turn = 1;
         auto [ci, cj] = input.start_pos;
         bool got_key = false;
@@ -309,11 +314,24 @@ namespace Utils {
                 break;
             }
             if(got_key) {
-                if(hp < 2*input.d*Utils::calc_dist(input.goal_pos, {ci, cj})) break;
+                if(hp < 300) break;
             } else {
-                if(hp < 2*input.d*Utils::calc_dist(input.key_pos, {ci, cj}) + 3*Utils::calc_dist(input.key_pos, input.goal_pos)) break;
+                if(hp < 600) break;
+            }
+            if(input.s[ci][cj] == 'F') mp++;
+            for(int dir = 0; dir < 4; dir++) {
+                int ni = ci + Utils::di[dir];
+                int nj = cj + Utils::dj[dir];
+                if(input.in_range(ni, nj) && input.s[ni][nj] == 'E' && mp > 0) {
+                    res.ans.push_back(Operation(Command::Fire, dir));
+                    mp--;
+                    hp--;
+                    input.s[ni][nj] = '.';
+                    turn++;
+                }
             }
             res.ans.push_back(op);
+            input.s[ci][cj] = '.';
             if(op.cmd == Command::Move) {
                 ci += Utils::di[op.dir];
                 cj += Utils::dj[op.dir];
@@ -411,7 +429,7 @@ int main(int argc, char* argv[]) {
     IterationControl<State> sera;
     // annealに変更するときは最小値を探していることに気を付ける
     // State res = sera.climb(10, State::initState());
-    State res = sera.climb(2.7, State::initState());
+    State res = sera.anneal(2.7, temp_start, temp_end, State::initState());
     Output ans = Utils::convertPathToOperations(res.path);
     ans = Utils::saveLife(ans);
     ans.print();
